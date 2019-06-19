@@ -96,6 +96,11 @@ Base.:(+)(a::Tuple{Float32,Float32}, b::Tuple{Float32,Float32}) = (a[1]+b[1], a[
 Base.:(/)(a::Tuple{Float32,Float32}, b::Real) = (a[1]/b, a[2]/b)
 
 function varloss(e,σ)
+    error("getindex in sum is broken in Zygote")
+    sum(i->0.5f0*abs2(e[i])/σ[i]^2 + log(σ[i]), eachindex(e))
+end
+
+function varloss(e,σ::Number)
     sum(e->0.5f0*(abs2(e)/σ^2), e)
 end
 
@@ -106,21 +111,28 @@ function partlik(e, σ)
     log(sum(w->exp(w - offset), w)) + offset - log(size(e,2))
 end
 
-function samplenet(μσ, noise=true)
+
+function splitμσ(μσ)
     nz = length(μσ) ÷ 2
+    μ = μσ[1:nz]
+    σ = exp.(μσ[(nz+1):end])
+    μ, σ
+end
+
+function samplenet(μσ, noise=true)
     np = size(μσ,2)
-    μ = μσ[1:nz,:]
-    σ = exp.(μσ[(nz+1):end,:])
+    μ, σ = splitμσ(μσ)
+    nz = length(μ)
     w = μ .+ σ .* randn(Float32, nz, np).*noise
     μ, σ, w
 end
 
 function dropout(e)
-    mapcols(e->rand((0,1))*e, e)
+    mapcols(e->rand((0,0,0,1))*e, e)
 end
 
 Zygote.@adjoint function dropout(e)
-    mask = rand((0,1), 1, np)
+    mask = rand((0,0,0,1))
     e.*mask, x->(x.*mask,)
 end
 
