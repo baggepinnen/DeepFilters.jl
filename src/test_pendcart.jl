@@ -11,24 +11,25 @@ Random.seed!(0)
 
 include("pendcart.jl")
 ##
-Z,Y,U = generate_data_pendcart(4,80)
+Z,Y,U = generate_data_pendcart(4,100)
 
 
 cb = function (i=0)
-    i % 1000 == 0 || return
+    Flux.reset!(df)
+    i % 1500 == 0 || return
     lm = [ot.loss1 ot.loss2]
     # lm = length(loss1) > Ta ? lm[Ta:end,:] : lm
     # lm = filt(ones(80), [80], lm, fill(lm[1,1], 79))
-    fig = plot(lm, layout=@layout([[a;b] c]), sp=1:2, yscale=minimum(lm) < 0 ? :identity : :log10)
+    fig = plot(lm, layout=@layout([[a;b] c]), sp=1:2, yscale=minimum(lm) <= 0 ? :identity : :log10)
 
-    z,y,u = generate_data_pendcart(5, [pi+0.1, 0])
+    z,y,u = generate_data_pendcart(5, [pi-0.1, 0])
     t = range(0,step=h, length=length(y))
-    yh,_,_,_ = sim(df,y,u)
+    yh,_, = sim(df,y,u, true, false)
     ##
     plot!(t, reduce(hcat,y)', sp=3)
     plot!(t, reduce(hcat, getindex.(yh, 1, :))', l=(:green,), sp=3, markerstrokecolor=:auto)
     # scatter!(reduce(hcat, getindex.(yh, 2, :))', m=(2,0.2,:green), sp=3, markerstrokecolor=:auto)
-    yh,zh,zp = sim(df,y,u, false, true)
+    yh,zh = sim(df,y,u, false, false)
     plot!(t, reduce(hcat, getindex.(yh, 1, :))', l=(:black,), sp=3, markerstrokecolor=:auto)
     vline!([1], l=(:magenta, :dash), sp=3)
     # scatter!(reduce(hcat, getindex.(yh, 2, :))', m=(2,0.2,:black), sp=3, markerstrokecolor=:auto)
@@ -38,14 +39,18 @@ end
 ##
 
 # opt = Momentum(0.00001f0, 0.8)
-opt = ADAGrad(0.01f0)
+# opt = ADAGrad(0.005f0)
+opt = ADAGrad(0.001f0)
 ot = OptTrace()
 # sched = I -> (I ÷ 500) % 2 == 0 ? 0.01 : 0.01
-df = DeepFilter(1,1,4,40)
+df = DeepFilters.DVO(1,1,100,100)
+
+# df = DeepFilter(1,1,10,50)
 # df.g[end].b[end÷2+1:end] .= log(0.05)
+pars = Flux.params(df)
+# loss(1,Y[1],U[1],df,1000)
 Zygote.refresh()
-# pars = Flux.params(df)
-# (l1,l2), back = Zygote.forward(df->loss(1,Y[1],U[1],df), df)
+# (l1,l2), back = Zygote.forward(df->loss(1,Y[1],U[1],df,1000), df)
 # grads = back((1f0,1f0))
 # @btime Zygote.gradient(()->+(loss(1,$(Y[1]),$U[1],df, 1000)...), $pars)
 # grads = Zygote.gradient(()->+(loss(1,Y[1],U[1],df, 1000)...), pars)
@@ -58,7 +63,7 @@ plots = map(1:9) do i
     # i = 10
     z,y,u = generate_data_pendcart(5)
     yt = cos.(z[1,:])
-    yh,zh,zp = sim(df,y,u, false, true)
+    yh,zh = sim(df,y,u, false, false)
     YH = reduce(hcat,mean.(yh, dims=2)[:])'
     plot(reduce(hcat,yt)', layout=1, l=(2,))
     scatter!(reduce(hcat, getindex.(yh, 1, :))', m=(2,0.1,:black), sp=1, markerstrokecolor=:auto)
@@ -71,7 +76,7 @@ plot(plots...) |> display
 ## Plot tubes
 
 Zs = map(1:length(Z)) do i
-    yh,zh,_ = sim(df,Y[i],U[i], true, false)
+    yh,zh = sim(df,Y[i],U[i], true, false)
     zh = reduce(hcat, zh)'
     zmat = reduce(hcat,Z[i])'[1:end-1,:]
     zmat[:,1] .= mod2pi.(zmat[:,1])
@@ -96,37 +101,41 @@ plot(plots...) |> display
 
 
 ## Plot particles
-
+noise = true
 z,y,u = generate_data_pendcart(5, [pi-0.1, 0])
 zmat = z'
 yt = cos.(zmat[:,1])
 t = range(0,step=h, length=length(y))
 # yh,zh,zp = sim((YU[i][1], YU[i][2]), false, true)
 # zmat = reduce(hcat,trajs_state[i])'
-yh,zh,zp,yh2 = sim(df,y,u, false, false)
-zpj = reduce(hcat, zp)'
+yh,zh,yh2 = sim(df,y,u, false, noise)
+_, s = DeepFilters.simvar(df,y,u, false; samples=100)
+# zpj = reduce(hcat, zp)'
 YH = reduce(hcat, yh)'
 YH2 = reduce(hcat, yh2)'
 plot(t,yt, lab="\$y\$", l=(3,), layout=(3,1), size=(400, 500))
-plot!(t,YH, lab="\$\\hat{y}_0\$", sp=1)
+plot!(t,YH, lab="\$\\hat{y}_0\$", ribbon= 2sqrt.(s), sp=1)
 vline!([1], l=(:magenta, :dash))
 
-yh,zh,zp,yh2 = sim(df,y,u, true, false)
+yh,zh,yh2 = sim(df,y,u, true, noise)
 YH = reduce(hcat, yh)'
 YH2 = reduce(hcat, yh2)'
 plot!(t,YH, lab="\$\\hat{y}_t\$", sp=1)
 
+
 plot!(t,u', lab="u", sp=2, seriestype=:steps)
 
 z,y,u = generate_data_pendcart(5, [pi+0.1, 0])
-yh,zh,zp,yh2 = sim(df,y,u, false, false)
+yh,zh,yh2 = sim(df,y,u, false, noise)
+_, s = DeepFilters.simvar(df,y,u, false; samples=100)
+
 YH = reduce(hcat, yh)'
 YH2 = reduce(hcat, yh2)'
 plot!(t,yt, lab="\$y\$", l=(3,), sp=3)
-plot!(t,YH, lab="\$\\hat{y}\$", sp=3)
+plot!(t,YH, lab="\$\\hat{y}\$", ribbon= 2sqrt.(s), sp=3)
 vline!([1], l=(:magenta, :dash), sp=3)
 
-yh,zh,zp,yh2 = sim(df,y,u, true, false)
+yh,zh,yh2 = sim(df,y,u, true, noise)
 YH = reduce(hcat, yh)'
 YH2 = reduce(hcat, yh2)'
 plot!(t,YH, lab="\$\\hat{y}_t\$", sp=3)

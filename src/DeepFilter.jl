@@ -14,7 +14,7 @@ function DeepFilter(ny::Int,nu::Int,nz::Int,nh::Int)
     g  = Chain(Dense(nz,nh,tanh), Dense(nh,nh,σ), Dense(nh,ny))
 
     w0 = Chain(Dense(nz,nh,tanh), Dense(nh,nz))
-    z0 = Chain(Dense(5ny,nh,tanh), Dense(nh,nz))
+    z0 = Chain(Dense(10ny,nh,tanh), Dense(nh,nz))
 
     # z0 = Chain(Dense(nz,nh,tanh), Dense(nh,nz))
     # w0 = Chain(Dense(4ny,nh,tanh), Dense(nh,2nz))
@@ -29,29 +29,27 @@ const ⊗ = Zygote.dropgrad
 function sim(df::DeepFilter, y, u, feedback=true, noise=true)
     fn,g,kn,z0,w0 = df.fn,df.g,df.kn,df.z0,df.w0
     # y,u = yu
-    z   = z0([y[1];y[2];y[3];y[4];y[5]])
+    z   = z0(reduce(vcat, y[1:10]))
     # z   = z0(samplenet(w0([y[1];y[2];y[3];y[4]]),noise)[3])
-    yh = []
+    yh  = []
     yh2 = []
-    sy = []#
+    sy  = []#
     zh  = []
-    zp  = []
     for t in 1:length(y)
-        ŷ,σy   = splitμσ(g(z))
-        # ŷ   = g(z)
+        # ŷ,σy   = splitμσ(g(z))
+        ŷ   = g(z)
         push!(yh, ŷ)
         # push!(sy, σy)
         e   = y[t] .- ŷ
         zc  = k(df, z,feedback.*e)
-        push!(zh, mean(z, dims=2)[:])
-        push!(zp, z)
+        push!(zh, z)
         ze  = hf(df,z,y[t])
-        ŷ = splitμσ(g(ze))[1]
-        # ŷ = g(ze)
+        # ŷ = splitμσ(g(ze))[1]
+        ŷ = g(ze)
         push!(yh2, ŷ)
         z   = f(df, z,u[t], zc)
     end
-    yh, zh, zp, yh2#, sy
+    yh, zh, yh2#, sy
 end
 
 
@@ -59,15 +57,15 @@ function loss(i,y,u,df::DeepFilter,Ta)
     fn,g,kn,z0,w0,h = df.fn,df.g,df.kn,df.z0,df.w0,df.h
     T = length(y)
     c = min(1, 0.01 + i/Ta)
-    z = z0([y[1];y[2];y[3];y[4];y[5]])
+    z = z0(reduce(hcat, y[1:10])')
     # z = z0(samplenet(w0([y[1];y[2];y[3];y[4]]))[3])
     l1 = l2 = 0f0
     for t in 1:T
-        ŷ,σy = splitμσ(g(z))
-        # ŷ    = g(z)
+        # ŷ,σy = splitμσ(g(z))
+        ŷ    = g(z)
         e    = y[t] .- ŷ
-        # l1  += varloss(e, 0.05)# σy)
-        l1  += sum(varloss.(e, σy))
+        l1  += varloss(e, 0.05)
+        # l1  += sum(varloss.(e, σy))
         zc   = k(df,z,(e))
         l2  += sum(abs2,zc)
         # ze  = hf(df,⊗(z),y[t])

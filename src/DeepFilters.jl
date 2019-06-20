@@ -3,13 +3,16 @@ module DeepFilters
 using Plots, Flux, Zygote, LinearAlgebra, Statistics, Random, Printf, IterTools, Distributions, ChangePrecision, SliceMap, Juno
 using Flux: params
 
-export AbstractDeepFilter, DeepFilter, DVBF, OptTrace
+export AbstractDeepFilter, DeepFilter, DVBF, LSTMFilter
+export OptTrace
 export train, loss, sim
 
 abstract type AbstractDeepFilter end
 
 include("DeepFilter.jl")
 include("DVBF.jl")
+include("LSTM.jl")
+include("DVO.jl")
 
 Base.@kwdef struct OptTrace
     loss1::Vector{Float64} = Float64[]
@@ -103,6 +106,9 @@ end
 function varloss(e,σ::Number)
     sum(e->0.5f0*(abs2(e)/σ^2), e)
 end
+function varloss(e::Number,σ::Number)
+    0.5f0*(abs2(e)/σ^2)
+end
 
 
 function partlik(e, σ)
@@ -145,5 +151,17 @@ Zygote.@nograd function randmm(nz,np)
     randn(Float32, nz, np) .+ rand((-4,4), 1, np)
 end
 
+
+function simvar(df,y,u, feedback; samples=30)
+
+    res = map(1:samples) do _
+        yh = sim(df,y,u, feedback, true)[1]
+        reduce(hcat, yh)'
+    end
+    yh = mean(res)
+    s = mapreduce(+, res) do y
+        abs2.(y .- yh)
+    end ./ samples
+    yh,s
 
 end # module

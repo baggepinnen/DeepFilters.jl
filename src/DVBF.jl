@@ -22,20 +22,21 @@ function sim(df::DVBF, y, u, feedback=true, noise=true)
     z   = z0(samplenet(w0([y[1];y[2];y[3];y[4]]),noise)[3])
     yh = []
     zh  = []
-    zp  = []
     for t in 1:length(y)-1
         ŷ   = g(z)
         push!(yh, ŷ)
         μ, σ, zc = samplenet(k(df,z,y[t+1]))
-        push!(zh, mean(z, dims=2)[:])
-        push!(zp, z)
-        z   = f(df, z, u[t], noise ? feedback*zc : μ)
+        push!(zh, z)
+        z   = f(df, z, u[t], feedback*(noise ? zc : μ))
     end
-    yh, zh, zp
+    ŷ   = g(z)
+    push!(yh, ŷ)
+    yh, zh, 0
 end
 
 
 function loss(i,y,u,df::DVBF,Ta)
+    T = length(y)
     fn,g,kn,z0,w0 = df.fn,df.g,df.kn,df.z0,df.w0
     c        = min(1, 0.01 + i/Ta)
     μ, σ, zc = samplenet(w0([y[1];y[2];y[3];y[4]]))
