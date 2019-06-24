@@ -1,16 +1,16 @@
-struct DVO{Tf, Tg, Tw, Tz, Tk, Th} <: AbstractDeepFilter
-    fn::Tf
+struct DVO{Tf, Tg, Tw, Tz, Tk, Tq} <: AbstractDeepFilter
+    f::Tf
     g::Tg
     w0::Tw
     z0::Tz
-    kn::Tk
-    h::Th
+    k::Tk
+    q::Tq
 end
-# Flux.params(df::DVO) = params((df.fn,df.g,df.kn,df.z0))
-Flux.params(df::DVO) = params((df.fn,df.g,df.kn,df.z0,df.w0))
+# Flux.params(df::DVO) = params((df.f,df.g,df.k,df.z0))
+Flux.params(df::DVO) = params((df.f,df.g,df.k,df.z0,df.w0,df.q))
 
 function DVO(ny::Int,nu::Int,nz::Int,nh::Int)
-    fn  = Chain(Dense(2nz+nu,nh,tanh), Dense(nh,nh,tanh), Dense(nh,nh,tanh), Dense(nh,nz))
+    f  = Chain(Dense(3nz+nu,nh,tanh), Dense(nh,nh,tanh), Dense(nh,nh,tanh), Dense(nh,nz))
     g  = Chain(Dense(nz,nh,tanh), Dense(nh,nh,σ), Dense(nh,ny))
 
     # w0 = Chain(Dense(nz,nh,tanh), Dense(nh,nz))
@@ -19,20 +19,31 @@ function DVO(ny::Int,nu::Int,nz::Int,nh::Int)
     z0 = Chain(Dense(nz,nh,tanh), Dense(nh,nz))
     w0 = Chain(Dense(4ny,nh,tanh), Dense(nh,2nz))
 
-    kn  = Chain(Dense(nz+2ny,nh,tanh), Dense(nh,nh,tanh), Dense(nh,nz))
-    h = Chain(Dense(nz+ny, nh, tanh), Dense(nh, nz))
-    df = DVO(fn,g,w0,z0,kn,h)
+    k  = Chain(Dense(nz+ny,nh,tanh), Dense(nh,nh,tanh), Dense(nh,nz))
+    # TODO: initialize q to saturate the sigmoid.
+    q = IAF(Chain(Dense(nz+ny,nh,tanh), Dense(nh,3nz)),
+                ntuple(i->MADE(2nz, [nh,nh], 2nz, false, 1), 3))
+    # q = Chain(Dense(nz+ny,nh,tanh), Dense(nh,nh,tanh), Dense(nh,2nz))
+    df = DVO(f,g,w0,z0,k,q)
 end
 
-function k(df::DVO,z,e,y)
+
+f(df::DVO,z,u,ξ,w) = df.f([z;u;ξ;w]) + 0.9f0*z
+
+function k(df::DVO,z,e)
     # kn([z;mean(y)*ones(1,np)])
-    df.kn([z;e;y])
+    df.k([z;e])
+end
+
+function q(df::DVO,z,y)
+    # kn([z;mean(y)*ones(1,np)])
+    df.q([z;y])
 end
 
 const ⊗ = Zygote.dropgrad
 
 function sim(df::DVO, y, u, feedback=true, noise=true)
-    fn,g,kn,z0,w0 = df.fn,df.g,df.kn,df.z0,df.w0
+    g,z0,w0 = df.g,df.z0,df.w0
     # y,u = yu
     # z   = z0(reduce(vcat, y[1:10]))
     z   = z0(samplenet(w0([y[1];y[2];y[3];y[4]]),noise)[3])
@@ -46,22 +57,21 @@ function sim(df::DVO, y, u, feedback=true, noise=true)
         push!(yh, ŷ)
         # push!(sy, σy)
         e   = y[t] .- ŷ
-        zc  = k(df, z, e, y[t+1])
+        ξ  = k(df, z, feedback.*e)
         push!(zh, z)
-        ze  = hf(df,z,y[t])
-        # ŷ = splitμσ(g(ze))[1]
-        ŷ = g(ze)
-        push!(yh2, ŷ)
-        z   = f(df, z,u[t], feedback.*zc + noise*randn(size(zc)))
+        # w    = samplenet(q(df,z,y[t+1]),noise)[3]
+        w,ll,_ = q(df,z,y[t+1])
+        # @show size.((z,u[t], ξ ,w, μ))
+        z   = f(df, z,u[t], ξ, feedback ? w : noise ? randn(length(z)) : 0w)
     end
     ŷ   = g(z)
     push!(yh, ŷ)
-    yh, zh, yh2#, sy
+    yh, zh#, sy
 end
 
 
 function loss(i,y,u,df::DVO,Ta)
-    fn,g,kn,z0,w0,h = df.fn,df.g,df.kn,df.z0,df.w0,df.h
+    g,z0,w0 = df.g,df.z0,df.w0
     T = length(y)
     c = min(1, 0.01 + i/Ta)
     # z = z0(reduce(hcat, y[1:10])')
@@ -71,12 +81,16 @@ function loss(i,y,u,df::DVO,Ta)
     l1 = 0f0
     for t in 1:T-1
         # ŷ,σy = splitμσ(g(z))
-        ŷ    = g(z)
-        e    = y[t] .- ŷ
-        l1  += varloss(e, 0.05)
-        zc   = k(df,z,e,y[t+1])
-        l2  += sum(abs2, zc)
-        z = f(df,z,u[t], zc + randn(Float32, size(zc)))
+        ŷ     = g(z)
+        e     = y[t] .- ŷ
+        l1   += varloss(e, 0.05)
+        ξ     = k(df,z,e)
+        l2   += 10sum(abs2, ξ)
+        # μ,σ,w = samplenet(q(df,z,y[t+1]))
+        w,ll,_ = q(df,z,y[t+1])
+        l2   += sum(ll)
+
+        z     = f(df,z,u[t], ξ ,w)
     end
     ŷ    = g(z)
     e    = y[end] .- ŷ

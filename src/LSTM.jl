@@ -3,8 +3,8 @@ struct LSTMFilter{Tf,Tz} <: AbstractDeepFilter
     z0::Tz
 end
 # Flux.@treelike LSTMFilter
-Flux.params(df::LSTMFilter) = params((df.fn[1],df.fn[3],df.fn[4],df.fn[2].cell.Wh,df.fn[2].cell.Wi,df.fn[2].cell.b,df.fn[2].init..., df.z0))
-# Flux.params(df::LSTMFilter) = params((df.fn,df.g,df.kn,df.z0,df.w0))
+Flux.params(df::LSTMFilter) = params((df.f[1],df.f[3],df.f[4],df.f[2].cell.Wh,df.f[2].cell.Wi,df.f[2].cell.b,df.f[2].init..., df.z0))
+# Flux.params(df::LSTMFilter) = params((df.f,df.g,df.k,df.z0,df.w0))
 
 function LSTMFilter(ny::Int,nu::Int,nz::Int,nh::Int)
     fn  = Chain(Dense(nu,nz,tanh), LSTM(nz,nz), Dense(nz,nh,tanh), Dense(nh,ny))
@@ -17,7 +17,7 @@ end
 const ⊗ = Zygote.dropgrad
 
 function sim(df::LSTMFilter, y, u, feedback=true, noise=true)
-    fn,z0 = df.fn,df.z0
+    fn,z0 = df.f,df.z0
     Flux.reset!(fn)
     # y,u = yu
     z   = z0(reduce(vcat, y[1:10]))
@@ -38,7 +38,7 @@ end
 
 
 function loss(i,y,u,df::LSTMFilter,Ta)
-    fn,z0 = df.fn,df.z0
+    fn,z0 = df.f,df.z0
     T = length(y)
     z = z0(reduce(hcat, y[1:10])')
     fn[2].init = fn[2].state = (z, zeros(length(z)))
@@ -47,7 +47,7 @@ function loss(i,y,u,df::LSTMFilter,Ta)
     #     ŷ = fn(u[t])
     #     l1 += sum(abs2, y[t].-ŷ)
     # end
-    l1 = sum(x->norm(x)^2, df.fn.(u) .- y)
+    l1 = sum(x->norm(x)^2, df.f.(u) .- y)
     l2 = 0
     Float32(l1/T), Float32(l2/T)
 end

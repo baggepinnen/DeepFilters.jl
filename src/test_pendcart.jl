@@ -1,7 +1,4 @@
-# Increase depth of f
-# Removed h from training and params
-# Added dropout
-# Removed z0 layer
+# Added norm(e) to k in DVO
 
 cd(@__DIR__)
 using DeepFilters, Plots, Flux, Zygote, LinearAlgebra, Statistics, Random, Distributions, DSP
@@ -20,9 +17,10 @@ cb = function (i=0)
     lm = [ot.loss1 ot.loss2]
     # lm = length(loss1) > Ta ? lm[Ta:end,:] : lm
     # lm = filt(ones(80), [80], lm, fill(lm[1,1], 79))
-    fig = plot(lm, layout=@layout([[a;b] c]), sp=1:2, yscale=minimum(lm) <= 0 ? :identity : :log10)
+    fig = plot(lm, layout=@layout([[a;b] c]), sp=1:2, yscale=[:log10 :identity])# yscale=minimum(lm) <= 0 ? :identity : :log10)
 
     z,y,u = generate_data_pendcart(5, [pi-0.1, 0])
+    y = collect(eachcol(y))
     t = range(0,step=h, length=length(y))
     yh,_, = sim(df,y,u, true, false)
     ##
@@ -39,11 +37,10 @@ end
 ##
 
 # opt = Momentum(0.00001f0, 0.8)
-# opt = ADAGrad(0.005f0)
-opt = ADAGrad(0.001f0)
+opt = ADAGrad(0.01f0)
 ot = OptTrace()
 # sched = I -> (I ÷ 500) % 2 == 0 ? 0.01 : 0.01
-df = DeepFilters.DVO(1,1,100,100)
+df = DeepFilters.DVO(2,1,3,25)
 
 # df = DeepFilter(1,1,10,50)
 # df.g[end].b[end÷2+1:end] .= log(0.05)
@@ -62,11 +59,11 @@ Random.seed!(123)
 plots = map(1:9) do i
     # i = 10
     z,y,u = generate_data_pendcart(5)
-    yt = cos.(z[1,:])
+    y = collect(eachcol(y))
+    # yt = cos.(z[1,:])
     yh,zh = sim(df,y,u, false, false)
-    YH = reduce(hcat,mean.(yh, dims=2)[:])'
-    plot(reduce(hcat,yt)', layout=1, l=(2,))
-    scatter!(reduce(hcat, getindex.(yh, 1, :))', m=(2,0.1,:black), sp=1, markerstrokecolor=:auto)
+    YH = reduce(hcat,yh)'
+    plot(reduce(hcat,y)', layout=1, l=(2,))
     # scatter!(reduce(hcat, getindex.(yh, 2, :))', m=(2,0.5,:black), sp=2, markerstrokecolor=:auto)
     plot!(YH, l=(2,), xaxis=false, ylims=(-1.1,1.1))
     plot!(reduce(hcat,u)', l=(2,0.2,:green))
@@ -103,6 +100,7 @@ plot(plots...) |> display
 ## Plot particles
 noise = true
 z,y,u = generate_data_pendcart(5, [pi-0.1, 0])
+y = collect(eachcol(y))
 zmat = z'
 yt = cos.(zmat[:,1])
 t = range(0,step=h, length=length(y))
@@ -126,6 +124,7 @@ plot!(t,YH, lab="\$\\hat{y}_t\$", sp=1)
 plot!(t,u', lab="u", sp=2, seriestype=:steps)
 
 z,y,u = generate_data_pendcart(5, [pi+0.1, 0])
+y = collect(eachcol(y))
 yh,zh,yh2 = sim(df,y,u, false, noise)
 _, s = DeepFilters.simvar(df,y,u, false; samples=100)
 

@@ -44,8 +44,8 @@ end
     prob = ODEProblem(pendcart,u0,tspan)
     sol = solve(prob,Tsit5())
     z = reduce(hcat, sol(0:h:T).u)
-    # y = vcat(abs.(sin.(z[1:1,:])), cos.(z[1:1,:])) .+ 0.05 .* randn.()
-    y = cos.(z[1:1,:]) .+ 0.05 .* randn.()
+    y = vcat(sin.(z[1:1,:]), cos.(z[1:1,:])) .+ 0.05 .* randn.()
+    # y = cos.(z[1:1,:]) .+ 0.05 .* randn.()
     z[1,:] .= centerangle(z[1,:])
     z,y, controller.(eachcol(z), 0:h:T)'
 end

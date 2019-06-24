@@ -10,6 +10,10 @@ export train, loss, sim
 abstract type AbstractDeepFilter end
 
 include("DeepFilter.jl")
+include("MADE.jl")
+include("IAF.jl")
+
+
 include("DVBF.jl")
 include("LSTM.jl")
 include("DVO.jl")
@@ -48,11 +52,20 @@ function train(df, y, u, epochs, opt;
     ot
 end
 
+splitin(n) = x->splitin(x,n)
+function splitin(x,n)
+    l = length(x) ÷ n
+    ntuple(n) do i
+        s = (i-1)*l + 1
+        x[s:s+l-1]
+    end
+end
+
 function k(df,z,e)
     # kn([z;mean(y)*ones(1,np)])
-    df.kn([z;e])
+    df.k([z;e])
 end
-f(df,z,u,zc) = df.fn([z;u;zc]) + 0.9f0*z
+f(df,z,u,zc) = df.f([z;u;zc]) + 0.9f0*z
 hf(df,z,y) = df.h([z;y])
 
 function hstack(xs, n)
@@ -67,7 +80,7 @@ Zygote.@adjoint function Base.reduce(::typeof(hcat), V::AbstractVector{<:Abstrac
     reduce(hcat, V), dV -> (nothing, collect(eachcol(dV)))
 end
 
-function stats(e)
+function stats(e::AbstractMatrix)
     μ = mean(e, dims=2)
     μ, sum(abs2, e .- μ, dims=2) ./ size(e,2) .+ 1f-3
 end
@@ -163,5 +176,7 @@ function simvar(df,y,u, feedback; samples=30)
         abs2.(y .- yh)
     end ./ samples
     yh,s
+
+end
 
 end # module
